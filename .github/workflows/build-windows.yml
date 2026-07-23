@@ -1,0 +1,44 @@
+name: Build AgentCore Windows Installer
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore application source
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem payload/*.part | Sort-Object Name
+          $base64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          [IO.File]::WriteAllBytes('source.zip', [Convert]::FromBase64String($base64))
+          Expand-Archive -Path source.zip -DestinationPath . -Force
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Validate JavaScript
+        shell: pwsh
+        run: |
+          node --check src/main.cjs
+          node --check src/preload.cjs
+          node --check src/app.js
+      - name: Build installer
+        run: npm run build:win
+      - name: Verify installer
+        shell: pwsh
+        run: |
+          $file = Get-ChildItem release/AgentCore-Setup-*-x64.exe | Select-Object -First 1
+          if (-not $file) { throw 'Installer not found' }
+          if ($file.Length -lt 50000000) { throw "Installer is unexpectedly small: $($file.Length)" }
+          Write-Host "Built $($file.FullName) $($file.Length) bytes"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AgentCore-Windows-Installer
+          path: release/AgentCore-Setup-*-x64.exe
+          if-no-files-found: error
