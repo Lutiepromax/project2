@@ -1,6 +1,9 @@
 name: Build AgentCore Windows Installer
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
