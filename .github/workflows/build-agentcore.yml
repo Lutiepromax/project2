@@ -1,0 +1,51 @@
+name: Build AgentCore Windows
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore source archive
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem payload/source-*.part | Sort-Object Name
+          if (-not $parts) { throw 'Source payload not found' }
+          $base64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          [IO.File]::WriteAllBytes('AgentCore-Final-Source.zip', [Convert]::FromBase64String($base64))
+          Expand-Archive -Path AgentCore-Final-Source.zip -DestinationPath . -Force
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: AgentCore-Final
+        run: npm install --no-audit --no-fund
+
+      - name: Validate source
+        working-directory: AgentCore-Final
+        run: npm run validate
+
+      - name: Build installer
+        working-directory: AgentCore-Final
+        run: npm run dist:win
+
+      - name: Verify installer
+        shell: pwsh
+        run: |
+          $installer = Get-Item AgentCore-Final/release/AgentCore-Setup.exe
+          if ($installer.Length -lt 50000000) { throw "Installer too small: $($installer.Length) bytes" }
+          Get-FileHash $installer.FullName -Algorithm SHA256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AgentCore-Setup
+          path: AgentCore-Final/release/AgentCore-Setup.exe
+          if-no-files-found: error
